@@ -1,4 +1,5 @@
 **این پروژه اموزشی که برای گیم استفاده میشود پس از تست کامل و ساخت اسکریپت قرار داده خواهد شد**
+
 #Description
 
 - This tunnel application creates a virtual TUN interface on both the client and the server and tunnels IP packets over a UDP connection. It supports optional encryption via a simple XOR cipher, dynamic pacing for adaptive latency control, jitter buffering to smooth out packet delivery, and a keep‑alive mechanism to maintain NAT mappings and detect connection problems. The tunnel can be run in either a multithreaded mode—with separate threads handling TUN-to-UDP and UDP-to-TUN transfers (optionally using epoll for scalable event handling)—or in a single‑threaded fallback mode. On the client side, a reconnect mechanism is provided so that if the UDP connection fails (for example, if a keep‑alive packet is met with an “ECONNREFUSED” error), the client will close the socket, wait for a configurable retry interval, and then reconnect automatically.
