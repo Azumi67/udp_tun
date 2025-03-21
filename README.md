@@ -4,6 +4,16 @@
 
 - This tunnel application creates a virtual TUN interface on both the client and the server and tunnels IP packets over a UDP connection. It supports optional encryption via a simple XOR cipher, dynamic pacing for adaptive latency control, jitter buffering to smooth out packet delivery, and a keep‑alive mechanism to maintain NAT mappings and detect connection problems. The tunnel can be run in either a multithreaded mode—with separate threads handling TUN-to-UDP and UDP-to-TUN transfers (optionally using epoll for scalable event handling)—or in a single‑threaded fallback mode. On the client side, a reconnect mechanism is provided so that if the UDP connection fails (for example, if a keep‑alive packet is met with an “ECONNREFUSED” error), the client will close the socket, wait for a configurable retry interval, and then reconnect automatically.
 
+#you might need to change some stuff.( these configs works well for me( change comamnds to make it better)
+- Server
+```
+./server --ifname tun0 --ip 50.22.22.1/24 --mtu 1250 --pwd mypassword --port 8004 --mode 1 --sock-buf 1024 --log-lvl info --keep-alive 10 --dynamic-pacing 0 --jitter-buffer 0 --multithread 0 --use-epoll 0
+```
+- Client
+```
+./client --server ip Server --ifname tun0 --ip 50.22.22.2/24 --mtu 1250 --port 8004 --retry 5 --mode 1 --sock-buf 2048 --log-lvl info --keep-alive 10 --dynamic-pacing 1 --jitter-buffer 0 --multithread 0 --use-epoll 0
+```
+
 #Advanced Usage
 
 - Server :
