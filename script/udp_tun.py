@@ -144,33 +144,33 @@ def ask_server_config():
     print(f"{BLUE}=== Server Configuration ==={RESET}")
     print("\033[93m───────────────────────────────────────\033[0m")
     print(f"{YELLOW}Tip: Configure the server settings. For example:\n"
-          f"  - ifname: The network interface for the TUN device (e.g, azumi).\n"
-          f"  - ip: The TUN IP address (e.g, 50.22.22.1/24).\n"
+          f"  - ifname: The network interface for the TUN device (e.g., azumi).\n"
+          f"  - ip: The TUN IP address (e.g., 50.22.22.1/24).\n"
           f"  - mtu: The maximum transmission unit size.\n"
           f"  - mode: 1 to enable, 0 to disable it.\n"
           f"  - Other options adjust socket buffer size, logging, keep-alive, pacing, etc.{RESET}\n")
     print("\033[93m───────────────────────────────────────\033[0m")
     
-    server_ifname = input(f"{YELLOW}Enter {GREEN}Server network interface{RESET} (e.g, azumi){YELLOW}: {RESET}").strip()
-    server_ip     = input(f"{YELLOW}Enter {GREEN}Server TUN IP {RESET}(e.g, 50.22.22.1/24){YELLOW}: {RESET}").strip()
-    server_mtu    = input(f"{YELLOW}Enter {GREEN}Server MTU {RESET}(e.g, 1250){YELLOW}: {RESET}").strip()
+    server_ifname = input(f"{YELLOW}Enter {GREEN}Server network interface{RESET} (e.g., azumi): {RESET}").strip()
+    server_ip     = input(f"{YELLOW}Enter {GREEN}Server TUN IP{RESET} (e.g., 50.22.22.1/24): {RESET}").strip()
+    server_mtu    = input(f"{YELLOW}Enter {GREEN}Server MTU{RESET} (e.g., 1250): {RESET}").strip()
     
     enable_xor = input(f"{YELLOW}Do you want to {GREEN}Enable XOR encryption{YELLOW} for server? ({GREEN}y{YELLOW}/{RED}n{YELLOW}): {RESET}").strip().lower()
     if enable_xor in ['y', 'yes']:
-        server_pwd = input(f"{YELLOW}Enter{GREEN} XOR password{YELLOW}: {RESET}").strip()
+        server_pwd = input(f"{YELLOW}Enter {GREEN}XOR password{YELLOW}: {RESET}").strip()
         pwd_flag = f"--pwd {server_pwd}"
     else:
         pwd_flag = ""
     
-    server_port          = input(f"{YELLOW}Enter Server {GREEN}port {RESET}(e.g, 8004){YELLOW}: {RESET}").strip()
-    server_mode          = input(f"{YELLOW}Enter Server {GREEN}mode {RESET}(0 for disable, 1 for enable){YELLOW}: {RESET}").strip()
-    server_sock_buf      = input(f"{YELLOW}Enter Server {GREEN}socket buffer {RESET}(e.g, 1024){YELLOW}: {RESET}").strip()
-    server_log_lvl       = input(f"{YELLOW}Enter Server {GREEN}log level {RESET}(e.g, info){YELLOW}: {RESET}").strip()
-    server_keep_alive    = input(f"{YELLOW}Enter Server {GREEN}keep-alive {RESET}(e.g, 10){YELLOW}: {RESET}").strip()
-    server_dynamic_pacing= input(f"{YELLOW}Do you want to {GREEN}Enable dynamic pacing{YELLOW}? {RESET}(1 to enable, 0 to disable){YELLOW}: {RESET}").strip()
-    server_jitter_buffer = input(f"{YELLOW}Enter Server {GREEN}jitter buffer {RESET}(e.g, in seconds 0){YELLOW}: {RESET}").strip()
-    server_multithread   = input(f"{YELLOW}Do you want to {GREEN}Enable multithread{YELLOW}? {RESET}(1 to enable, 0 to disable){YELLOW}: {RESET}").strip()
-    server_use_epoll     = input(f"{YELLOW}Do you want to {GREEN}Use epoll{YELLOW}? {RESET}(1 to enable, 0 to disable){YELLOW}: {RESET}").strip()
+    server_port          = input(f"{YELLOW}Enter Server {GREEN}port{RESET} (e.g., 8004): {RESET}").strip()
+    server_mode          = input(f"{YELLOW}Enter Server {GREEN}mode{RESET} (0 for disable, 1 for enable): {RESET}").strip()
+    server_sock_buf      = input(f"{YELLOW}Enter Server {GREEN}socket buffer{RESET} (e.g., 1024): {RESET}").strip()
+    server_log_lvl       = input(f"{YELLOW}Enter Server {GREEN}log level{RESET} (e.g., info): {RESET}").strip()
+    server_keep_alive    = input(f"{YELLOW}Enter Server {GREEN}keep-alive{RESET} (e.g., 10): {RESET}").strip()
+    server_dynamic_pacing= input(f"{YELLOW}Do you want to {GREEN}Enable dynamic pacing{YELLOW}? (1 to enable, 0 to disable): {RESET}").strip()
+    server_jitter_buffer = input(f"{YELLOW}Enter Server {GREEN}jitter buffer{RESET} (e.g., in seconds, 0): {RESET}").strip()
+    server_multithread   = input(f"{YELLOW}Do you want to {GREEN}Enable multithread{YELLOW}? (1 to enable, 0 to disable): {RESET}").strip()
+    server_use_epoll     = input(f"{YELLOW}Do you want to {GREEN}Use epoll{YELLOW}? (1 to enable, 0 to disable): {RESET}").strip()
     
     server_cmd = (
         f"./server --ifname {server_ifname} --ip {server_ip} --mtu {server_mtu} "
@@ -179,9 +179,8 @@ def ask_server_config():
         f"--dynamic-pacing {server_dynamic_pacing} --jitter-buffer {server_jitter_buffer} "
         f"--multithread {server_multithread} --use-epoll {server_use_epoll}"
     )
-    input(f"\n{RESET}Press Enter to return to the main menu...{RESET}")
-    main_menu()
     return server_cmd, server_ip
+
 
 def ask_client_config():
     print("\033[93m───────────────────────────────────────\033[0m")
@@ -226,8 +225,6 @@ def ask_client_config():
         f"--dynamic-pacing {client_dynamic_pacing} --jitter-buffer {client_jitter_buffer} "
         f"--multithread {client_multithread} --use-epoll {client_use_epoll}"
     )
-    input(f"\n{RESET}Press Enter to return to the main menu...{RESET}")
-    main_menu()
     return client_cmd, client_ip
     
 
@@ -808,6 +805,8 @@ def udp_tun():
         print("\033[93m───────────────────────────────────────\033[0m")
         create_service_file(service_name, full_server_cmd, description, dest_dir)
         display_box(f"Server TUN IP: {tun_ip}")
+        input(f"\n{RESET}Press Enter to return to the main menu...{RESET}")
+        main_menu()
     elif service_choice == "2":
         # Client
         compile_source("client.cpp", "client", dest_dir)
@@ -821,6 +820,8 @@ def udp_tun():
         print("\033[93m───────────────────────────────────────\033[0m")
         create_service_file(service_name, full_client_cmd, description, dest_dir)
         display_box(f"Client TUN IP: {tun_ip}")
+        input(f"\n{RESET}Press Enter to return to the main menu...{RESET}")
+        main_menu()
     elif service_choice == "0":
         main_menu()
     else:
