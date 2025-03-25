@@ -32,10 +32,9 @@ int dynamic_pacing = 0;      // 0 disabled, 1 enabled.
 int jitter_buffer_ms = 0;    // jitter buffer duration in ms; 0 = disabled.
 int multithread = 0;         // 0 = single-threaded (default), 1 = use dedicated threads.
 int use_epoll = 0;           // 0 = use select() in UDP thread; 1 = use epoll (if multithread==1).
-int retry_interval = 0;      // seconds to wait before reconnecting
 
 std::atomic<bool> running(true);
-std::atomic<bool> reconnect_required(false);
+std::atomic<bool> g_socket_error(false);
 
 int parse_log_lvl(const std::string &lvl)
 {
@@ -93,7 +92,7 @@ void config_interface(const std::string &ifname, const std::string &ip)
     std::cout << "Configuring interface: " << cmd.str() << std::endl;
     if (system(cmd.str().c_str()) != 0)
     {
-        std::cerr << "assign IP address failed.\n";
+        std::cerr << "Failed to assign IP address.\n";
         exit(1);
     }
     cmd.str("");
@@ -101,7 +100,7 @@ void config_interface(const std::string &ifname, const std::string &ip)
     std::cout << "Bringing up interface: " << cmd.str() << std::endl;
     if (system(cmd.str().c_str()) != 0)
     {
-        std::cerr << "failed to bring interface up.\n";
+        std::cerr << "Failed to bring interface up.\n";
         exit(1);
     }
 }
@@ -113,7 +112,7 @@ void set_mtu(const std::string &ifname, int mtu)
     std::cout << "Setting MTU: " << cmd.str() << std::endl;
     if (system(cmd.str().c_str()) != 0)
     {
-        std::cerr << "failed to set MTU.\n";
+        std::cerr << "Failed to set MTU.\n";
         exit(1);
     }
 }
@@ -136,7 +135,7 @@ struct JitterPacket
 
 void print_usage(const char *progname)
 {
-    std::cerr << "Usage Help Minus []: " << progname
+    std::cerr << "Usage: " << progname
               << " --server SERVER_IP [--ifname tunName] [--port portNumber] [--ip IP/mask] "
               << "[--mtu value] [--pwd password] [--retry seconds] [--mode 0|1] [--sock-buf number] "
               << "[--log-lvl level] [--keep-alive seconds] [--dynamic-pacing 0|1] [--jitter-buffer ms] "
@@ -144,10 +143,44 @@ void print_usage(const char *progname)
     exit(1);
 }
 
+int create_and_connect_socket(const std::string &server_ip, int port, int sock_buf)
+{
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+    {
+        perror("socket");
+        return -1;
+    }
+    int buf_val = sock_buf * 1024;
+    if (setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &buf_val, sizeof(buf_val)) < 0)
+        perror("setsockopt SO_SNDBUF");
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &buf_val, sizeof(buf_val)) < 0)
+        perror("setsockopt SO_RCVBUF");
+
+    struct sockaddr_in server_addr;
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(port);
+    if (inet_aton(server_ip.c_str(), &server_addr.sin_addr) == 0)
+    {
+        std::cerr << "Invalid server IP.\n";
+        close(sockfd);
+        return -1;
+    }
+    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    {
+        perror("connect");
+        close(sockfd);
+        return -1;
+    }
+    std::cout << "UDP socket connected to " << server_ip << ":" << port << "\n";
+    return sockfd;
+}
+
 void thread_tun_to_udp(int tun_fd, int sockfd, const std::string &password)
 {
     char buffer[BUFSIZE];
-    while (running.load())
+    while (running.load() && !g_socket_error.load())
     {
         int n = read(tun_fd, buffer, sizeof(buffer));
         if (n < 0)
@@ -156,17 +189,11 @@ void thread_tun_to_udp(int tun_fd, int sockfd, const std::string &password)
             continue;
         }
         xor_cipher(buffer, n, password);
-        int sent = send(sockfd, buffer, n, 0);
-        if (sent < 0)
+        if (send(sockfd, buffer, n, 0) < 0)
         {
             perror("send (TUN->UDP)");
-            if (errno == ECONNREFUSED)
-            {
-                std::cerr << "send (TUN->UDP) failed: Connection refused. Reconnecting...\n";
-                reconnect_required = true;
-                running = false;
-                break;
-            }
+            g_socket_error.store(true);
+            break;
         }
     }
 }
@@ -181,6 +208,7 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
         if (epfd < 0)
         {
             perror("epoll_create1");
+            g_socket_error.store(true);
             return;
         }
         struct epoll_event ev;
@@ -190,9 +218,10 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
         {
             perror("epoll_ctl");
             close(epfd);
+            g_socket_error.store(true);
             return;
         }
-        while (running.load())
+        while (running.load() && !g_socket_error.load())
         {
             int timeout = (select_timeout_ms > 0 ? select_timeout_ms : -1);
             int nfds = epoll_wait(epfd, &ev, 1, timeout);
@@ -201,6 +230,7 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
                 if (errno == EINTR)
                     continue;
                 perror("epoll_wait");
+                g_socket_error.store(true);
                 break;
             }
             if (nfds > 0 && (ev.events & EPOLLIN))
@@ -209,7 +239,8 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
                 if (n < 0)
                 {
                     perror("recv (UDP->TUN)");
-                    continue;
+                    g_socket_error.store(true);
+                    break;
                 }
                 if (n == 2 && std::string(buffer, n) == "KA")
                     continue;
@@ -223,9 +254,10 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
                 }
                 else
                 {
-                    int written = write(tun_fd, buffer, n);
-                    if (written < 0)
+                    if (write(tun_fd, buffer, n) < 0)
+                    {
                         perror("write to TUN (UDP->TUN)");
+                    }
                 }
             }
             if (jitter_buffer_ms > 0)
@@ -237,9 +269,10 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
                     auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - jp.arrival).count();
                     if (jitterQueue.size() == 1 || wait_ms >= jitter_buffer_ms)
                     {
-                        int written = write(tun_fd, jp.data.data(), jp.data.size());
-                        if (written < 0)
+                        if (write(tun_fd, jp.data.data(), jp.data.size()) < 0)
+                        {
                             perror("write jittered packet to TUN");
+                        }
                         jitterQueue.pop_front();
                     }
                     else
@@ -253,7 +286,7 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
     }
     else
     {
-        while (running.load())
+        while (running.load() && !g_socket_error.load())
         {
             fd_set readfds;
             FD_ZERO(&readfds);
@@ -272,6 +305,7 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
                 if (errno == EINTR)
                     continue;
                 perror("select");
+                g_socket_error.store(true);
                 break;
             }
             if (FD_ISSET(sockfd, &readfds))
@@ -280,43 +314,15 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
                 if (n < 0)
                 {
                     perror("recv (UDP->TUN)");
-                    continue;
+                    g_socket_error.store(true);
+                    break;
                 }
                 if (n == 2 && std::string(buffer, n) == "KA")
                     continue;
                 xor_cipher(buffer, n, password);
-                if (jitter_buffer_ms > 0)
+                if (write(tun_fd, buffer, n) < 0)
                 {
-                    JitterPacket jp;
-                    jp.data.assign(buffer, buffer + n);
-                    jp.arrival = std::chrono::steady_clock::now();
-                    jitterQueue.push_back(jp);
-                }
-                else
-                {
-                    int written = write(tun_fd, buffer, n);
-                    if (written < 0)
-                        perror("write to TUN (UDP->TUN)");
-                }
-            }
-            if (jitter_buffer_ms > 0)
-            {
-                auto now = std::chrono::steady_clock::now();
-                while (!jitterQueue.empty())
-                {
-                    auto &jp = jitterQueue.front();
-                    auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - jp.arrival).count();
-                    if (jitterQueue.size() == 1 || wait_ms >= jitter_buffer_ms)
-                    {
-                        int written = write(tun_fd, jp.data.data(), jp.data.size());
-                        if (written < 0)
-                            perror("write jittered packet to TUN");
-                        jitterQueue.pop_front();
-                    }
-                    else
-                    {
-                        break;
-                    }
+                    perror("write to TUN (UDP->TUN)");
                 }
             }
         }
@@ -326,7 +332,7 @@ void thread_udp_to_tun(int tun_fd, int sockfd, const std::string &password)
 void thread_keep_alive(int sockfd)
 {
     auto last = std::chrono::steady_clock::now();
-    while (running.load())
+    while (running.load() && !g_socket_error.load())
     {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         if (keep_alive_interval > 0)
@@ -335,20 +341,11 @@ void thread_keep_alive(int sockfd)
             if (std::chrono::duration_cast<std::chrono::seconds>(now - last).count() >= keep_alive_interval)
             {
                 const char *ka = "KA";
-                int sent = send(sockfd, ka, 2, 0);
-                if (sent < 0)
+                if (send(sockfd, ka, 2, 0) < 0)
                 {
-                    if (errno == ECONNREFUSED)
-                    {
-                        std::cerr << "Keep-alive failed: Connection refused. Reconnecting...\n";
-                        reconnect_required = true;
-                        running = false;
-                        break;
-                    }
-                    else
-                    {
-                        perror("send keep-alive");
-                    }
+                    perror("send keep-alive");
+                    g_socket_error.store(true);
+                    break;
                 }
                 last = now;
             }
@@ -356,11 +353,23 @@ void thread_keep_alive(int sockfd)
     }
 }
 
-int run_client_single_thread(int tun_fd, int sockfd, const std::string &password)
+int run_client_single_thread(int tun_fd, int sock_buf,
+                             const std::string &server_ip, int port,
+                             const std::string &password,
+                             int retry_interval)
 {
     char buffer[BUFSIZE];
     std::deque<JitterPacket> jitterQueue;
     auto last_keep_alive = std::chrono::steady_clock::now();
+
+    int sockfd = create_and_connect_socket(server_ip, port, sock_buf);
+    if (sockfd < 0)
+    {
+        std::cerr << "Initial connection failed. Exiting.\n";
+        return -1;
+    }
+
+    bool connection_lost = false;
     while (running.load())
     {
         fd_set readfds;
@@ -383,32 +392,24 @@ int run_client_single_thread(int tun_fd, int sockfd, const std::string &password
             if (errno == EINTR)
                 continue;
             perror("select");
-            break;
+            connection_lost = true;
         }
+
         if (keep_alive_interval > 0)
         {
             auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::seconds>(now - last_keep_alive).count() >= keep_alive_interval)
             {
                 const char *ka = "KA";
-                int sent = send(sockfd, ka, 2, 0);
-                if (sent < 0)
+                if (send(sockfd, ka, 2, 0) < 0)
                 {
-                    if (errno == ECONNREFUSED)
-                    {
-                        std::cerr << "Keep-alive failed: Connection refused. Reconnecting...\n";
-                        reconnect_required = true;
-                        running = false;
-                        break;
-                    }
-                    else
-                    {
-                        perror("send keep-alive");
-                    }
+                    perror("send keep-alive");
+                    connection_lost = true;
                 }
                 last_keep_alive = now;
             }
         }
+
         if (FD_ISSET(tun_fd, &readfds))
         {
             int n = read(tun_fd, buffer, sizeof(buffer));
@@ -418,44 +419,42 @@ int run_client_single_thread(int tun_fd, int sockfd, const std::string &password
                 continue;
             }
             xor_cipher(buffer, n, password);
-            int sent = send(sockfd, buffer, n, 0);
-            if (sent < 0)
+            if (send(sockfd, buffer, n, 0) < 0)
             {
                 perror("send (TUN->UDP)");
-                if (errno == ECONNREFUSED)
-                {
-                    std::cerr << "send (TUN->UDP) failed: Connection refused. Reconnecting...\n";
-                    reconnect_required = true;
-                    running = false;
-                    break;
-                }
+                connection_lost = true;
             }
         }
+
         if (FD_ISSET(sockfd, &readfds))
         {
             int n = recv(sockfd, buffer, sizeof(buffer), 0);
             if (n < 0)
             {
                 perror("recv");
-                continue;
+                connection_lost = true;
             }
-            if (n == 2 && std::string(buffer, n) == "KA")
-                continue;
-            xor_cipher(buffer, n, password);
-            if (jitter_buffer_ms > 0)
+            else if (n == 2 && std::string(buffer, n) == "KA")
             {
-                JitterPacket jp;
-                jp.data.assign(buffer, buffer + n);
-                jp.arrival = std::chrono::steady_clock::now();
-                jitterQueue.push_back(jp);
             }
-            else
+            else if (n > 0)
             {
-                int written = write(tun_fd, buffer, n);
-                if (written < 0)
-                    perror("write to TUN (UDP->TUN)");
+                xor_cipher(buffer, n, password);
+                if (jitter_buffer_ms > 0)
+                {
+                    JitterPacket jp;
+                    jp.data.assign(buffer, buffer + n);
+                    jp.arrival = std::chrono::steady_clock::now();
+                    jitterQueue.push_back(jp);
+                }
+                else
+                {
+                    if (write(tun_fd, buffer, n) < 0)
+                        perror("write to TUN (UDP->TUN)");
+                }
             }
         }
+
         if (jitter_buffer_ms > 0)
         {
             auto now = std::chrono::steady_clock::now();
@@ -465,8 +464,7 @@ int run_client_single_thread(int tun_fd, int sockfd, const std::string &password
                 auto wait_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - jp.arrival).count();
                 if (jitterQueue.size() == 1 || wait_ms >= jitter_buffer_ms)
                 {
-                    int written = write(tun_fd, jp.data.data(), jp.data.size());
-                    if (written < 0)
+                    if (write(tun_fd, jp.data.data(), jp.data.size()) < 0)
                         perror("write jittered packet to TUN");
                     jitterQueue.pop_front();
                 }
@@ -476,18 +474,37 @@ int run_client_single_thread(int tun_fd, int sockfd, const std::string &password
                 }
             }
         }
+
+        if (connection_lost)
+        {
+            std::cerr << "Connection lost. Attempting to reconnect in " << retry_interval << " seconds...\n";
+            close(sockfd);
+            std::this_thread::sleep_for(std::chrono::seconds(retry_interval));
+            sockfd = create_and_connect_socket(server_ip, port, sock_buf);
+            if (sockfd < 0)
+            {
+                std::cerr << "Reconnection failed. Will retry...\n";
+            }
+            else
+            {
+                std::cout << "Reconnected successfully.\n";
+                connection_lost = false;
+            }
+        }
     }
+    close(sockfd);
     return 0;
 }
 
 int main(int argc, char *argv[])
 {
-    std::string tunName = "azumitan";
+    std::string tunName = "tun0";
     std::string server_ip = "";
     int port = 8000;
     std::string ip_address = "";
     int mtu = 1500;
     std::string password = "";
+    int retry_interval = 5;
 
     for (int i = 1; i < argc; i++)
     {
@@ -589,43 +606,19 @@ int main(int argc, char *argv[])
     if (mtu > 0)
         set_mtu(tunName, mtu);
 
-    while (true)
+    if (multithread == 1)
     {
-        int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-        if (sockfd < 0)
+        while (running.load())
         {
-            perror("socket");
-            exit(1);
-        }
-        int buf_val = sock_buf * 1024;
-        if (setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &buf_val, sizeof(buf_val)) < 0)
-            perror("setsockopt SO_SNDBUF");
-        if (setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &buf_val, sizeof(buf_val)) < 0)
-            perror("setsockopt SO_RCVBUF");
-
-        struct sockaddr_in server_addr;
-        memset(&server_addr, 0, sizeof(server_addr));
-        server_addr.sin_family = AF_INET;
-        server_addr.sin_port = htons(port);
-        if (inet_aton(server_ip.c_str(), &server_addr.sin_addr) == 0)
-        {
-            std::cerr << "Invalid server IP.\n";
-            exit(1);
-        }
-        if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-        {
-            perror("connect");
-            close(sockfd);
-            std::this_thread::sleep_for(std::chrono::seconds(retry_interval));
-            continue;
-        }
-        std::cout << "UDP socket connected to " << server_ip << ":" << port << "\n";
-
-        reconnect_required = false;
-        running = true;
-
-        if (multithread == 1)
-        {
+            int sockfd = create_and_connect_socket(server_ip, port, sock_buf);
+            if (sockfd < 0)
+            {
+                std::cerr << "Socket creation failed in multithreaded mode, retrying in "
+                          << retry_interval << " seconds...\n";
+                std::this_thread::sleep_for(std::chrono::seconds(retry_interval));
+                continue;
+            }
+            g_socket_error.store(false);
             std::thread t1(thread_tun_to_udp, tun_fd, sockfd, password);
             std::thread t2(thread_udp_to_tun, tun_fd, sockfd, password);
             std::thread t3;
@@ -635,25 +628,24 @@ int main(int argc, char *argv[])
             t2.join();
             if (t3.joinable())
                 t3.join();
-        }
-        else
-        {
-            run_client_single_thread(tun_fd, sockfd, password);
-        }
-
-        if (reconnect_required.load())
-        {
-            std::cout << "Reconnecting in " << retry_interval << " seconds...\n";
             close(sockfd);
-            std::this_thread::sleep_for(std::chrono::seconds(retry_interval));
-            continue;
-        }
-        else
-        {
-            close(sockfd);
-            break;
+            if (g_socket_error.load())
+            {
+                std::cerr << "Socket error detected in multithread mode. Reconnecting in "
+                          << retry_interval << " seconds...\n";
+                std::this_thread::sleep_for(std::chrono::seconds(retry_interval));
+            }
+            else
+            {
+                break;
+            }
         }
     }
-
+    else
+    {
+        int res = run_client_single_thread(tun_fd, sock_buf, server_ip, port, password, retry_interval);
+        if (res < 0)
+            std::cerr << "Connection lost.\n";
+    }
     return 0;
 }
