@@ -135,7 +135,7 @@ struct JitterPacket
 
 void print_usage(const char *progname)
 {
-    std::cerr << "Usage: " << progname
+    std::cerr << "Usage Minus []: " << progname
               << " --server SERVER_IP [--ifname tunName] [--port portNumber] [--ip IP/mask] "
               << "[--mtu value] [--pwd password] [--retry seconds] [--mode 0|1] [--sock-buf number] "
               << "[--log-lvl level] [--keep-alive seconds] [--dynamic-pacing 0|1] [--jitter-buffer ms] "
