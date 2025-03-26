@@ -1,5 +1,3 @@
-**یک additional obf برای camouflage کردن ترافیک بعد از تست اضافه خواهد شد و همچنین multiplex برای استفاده از یک udp socket**
-
 ![R (2)](https://github.com/Azumi67/PrivateIP-Tunnel/assets/119934376/a064577c-9302-4f43-b3bf-3d4f84245a6f)
 نام پروژه :  تانل udp (پروژه آموزشی)
 ---------------------------------------------------------------
@@ -9,6 +7,7 @@
 - در اموزش مقادیری را قرار دادم که برای خودم خوب کار میکند. ممکن است در سرور شما با مقادیر متفاوتی نتیجه شبیه من را بدهد.
 - مانند tiny vpn از xor encryption استفاده شده است که چیز خاصی به حساب نمی اید
 - سرور میتواند ایران یا خارج باشد
+- گزینه multiplex و Obfuscation اضافه شد
 
 --------
 ![6348248](https://github.com/Azumi67/PrivateIP-Tunnel/assets/119934376/398f8b07-65be-472e-9821-631f7b70f783)
@@ -71,20 +70,21 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/Azumi67/udp_tun/refs/hea
 **Description**
 
 - This tunnel application creates a virtual TUN interface on both the client and the server and tunnels IP packets over a UDP connection. It supports optional encryption via a simple XOR cipher, dynamic pacing for adaptive latency control, jitter buffering to smooth out packet delivery, and a keep‑alive mechanism to maintain NAT mappings and detect connection problems. The tunnel can be run in either a multithreaded mode—with separate threads handling TUN-to-UDP and UDP-to-TUN transfers (optionally using epoll for scalable event handling)—or in a single‑threaded fallback mode. On the client side, a reconnect mechanism is provided so that if the UDP connection fails (for example, if a keep‑alive packet is met with an “ECONNREFUSED” error), the client will close the socket, wait for a configurable retry interval, and then reconnect automatically.
+It also supports multiplex to send traffic on one udp socket on server to different clients when enabled.It also adds another obf to xor which migh help to camouflage traffic.
 
 ------------------
 
-**CLI Samples**
+**CLI Samples**(V1.2)
 - Server
 ```
-./server --ifname tun0 --ip 50.22.22.1/24 --mtu 1250 --pwd mypassword --port 8004 --mode 1 --sock-buf 1024 --log-lvl info --keep-alive 10 --dynamic-pacing 0 --jitter-buffer 0 --multithread 0 --use-epoll 0
+./server --ifname tun0 --ip 50.22.22.1/24 --mtu 1250 --pwd mypassword --port 8004 --mode 1 --sock-buf 1024 --log-lvl info --keep-alive 10 --dynamic-pacing 0 --jitter-buffer 0 --multithread 1 --use-epoll 1 --multiplex 1 --obf 1
 ```
 - Client
 ```
-./client --server ip Server --ifname tun0 --ip 50.22.22.2/24 --mtu 1250 --port 8004 --retry 5 --mode 1 --sock-buf 2048 --log-lvl info --keep-alive 10 --dynamic-pacing 1 --jitter-buffer 0 --multithread 0 --use-epoll 0
+./client --server ip Server --ifname tun0 --ip 50.22.22.2/24 --mtu 1250 --port 8004 --retry 5 --mode 1 --sock-buf 2048 --log-lvl info --keep-alive 10 --dynamic-pacing 1 --jitter-buffer 0 --multithread 1 --use-epoll 1 --multiplex 1 --obf 1
 ```
 
-**Advanced Usage**
+**Advanced Usage**(V1.2)
 
 - Server :
 ```
@@ -142,6 +142,13 @@ Options:
   --use-epoll 0|1          
         In multithreaded mode, use epoll (1) for efficient UDP event handling
         instead of select (0).
+
+  --multiplex 0|1
+        The client always uses a single UDP connection, while the server (if multiplex enabled) can forward packets to multiple clients via one socket.
+
+  --obf 0|1
+         The additional obfuscation is optional via the “--obf” flag (set to 1 to enable).
+         All outgoing data (including keep-alive messages) is processed with XOR and then a simple rotate (by 3 bytes) if obfuscation is enabled.
 
   -h, --help               
         Display this advanced help message and exit.
@@ -208,6 +215,13 @@ Options:
         In multithreaded mode, use epoll (1) instead of select (0) for efficient UDP event handling.
         (Effective only when --multithread is set to 1.)
 
+  --multiplex 0|1
+        The client always uses a single UDP connection, while the server (if multiplex enabled) can forward packets to multiple clients via one socket.
+
+  --obf 0|1
+         The additional obfuscation is optional via the “--obf” flag (set to 1 to enable).
+         All outgoing data (including keep-alive messages) is processed with XOR and then a simple rotate (by 3 bytes) if obfuscation is enabled.
+
   -h, --help               
         Display this advanced help message and exit.
 ```
@@ -233,3 +247,7 @@ In multithreaded mode (--multithread 1), the tunnel uses dedicated threads for r
 
 - **Reconnect Logic (Client Side)**:
 The client continuously monitors for connection errors during data transmission (especially in the keep‑alive and TUN→UDP threads). If an error (e.g., ECONNREFUSED) is detected, a reconnect flag is set, the threads exit, and the main loop closes the socket. After waiting for the interval specified by --retry, the client attempts to reconnect to the server.
+
+- **Obfuscation vs. Encryption:
+The additional obfuscation (XOR plus a fixed byte rotation) is a very lightweight transformation meant to obscure the traffic. It might help hide the fact that the traffic is VPN data from casual inspection, but it is not cryptographically secure.
+The provided mechanism is primarily meant for basic obfuscation to make the VPN traffic look more like normal UDP traffic. it might suffice for avoiding superficial DPI, But for any serious security requirements, this is not a substitute for proper encryption.
