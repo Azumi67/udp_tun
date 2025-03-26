@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ====================================================================
- UDP_TUN Deployment Script
+ UDP_TUN Deployment Script V1.2
 ====================================================================
 This script will:
   - Clone the udp_tun repository from GitHub into /usr/local/bin
@@ -147,8 +147,10 @@ def ask_server_config():
           f"  - ifname: The network interface for the TUN device (e.g., azumi).\n"
           f"  - ip: The TUN IP address (e.g., 50.22.22.1/24).\n"
           f"  - mtu: The maximum transmission unit size.\n"
-          f"  - mode: 1 to enable, 0 to disable it.\n"
-          f"  - Other options adjust socket buffer size, logging, keep-alive, pacing, etc.{RESET}\n")
+          f"  - mode: 1 to enable low-latency mode, 0 to disable it.\n"
+          f"  - Other options adjust socket buffer size, logging, keep‑alive, pacing, etc.\n"
+          f"  - multiplex: Enable (1) to allow a single UDP socket to handle multiple clients.\n"
+          f"  - obf: Enable (1) to apply additional obfuscation (XOR + byte rotation).\n{RESET}")
     print("\033[93m───────────────────────────────────────\033[0m")
     
     server_ifname = input(f"{YELLOW}Enter {GREEN}Server network interface{RESET} (e.g., azumi): {RESET}").strip()
@@ -162,22 +164,25 @@ def ask_server_config():
     else:
         pwd_flag = ""
     
-    server_port          = input(f"{YELLOW}Enter Server {GREEN}port{RESET} (e.g., 8004): {RESET}").strip()
-    server_mode          = input(f"{YELLOW}Enter Server {GREEN}mode{RESET} (0 for disable, 1 for enable): {RESET}").strip()
-    server_sock_buf      = input(f"{YELLOW}Enter Server {GREEN}socket buffer{RESET} (e.g., 1024): {RESET}").strip()
-    server_log_lvl       = input(f"{YELLOW}Enter Server {GREEN}log level{RESET} (e.g., info): {RESET}").strip()
-    server_keep_alive    = input(f"{YELLOW}Enter Server {GREEN}keep-alive{RESET} (e.g., 10): {RESET}").strip()
-    server_dynamic_pacing= input(f"{YELLOW}Do you want to {GREEN}Enable dynamic pacing{YELLOW}? (1 to enable, 0 to disable): {RESET}").strip()
-    server_jitter_buffer = input(f"{YELLOW}Enter Server {GREEN}jitter buffer{RESET} (e.g., in seconds, 0): {RESET}").strip()
-    server_multithread   = input(f"{YELLOW}Do you want to {GREEN}Enable multithread{YELLOW}? (1 to enable, 0 to disable): {RESET}").strip()
-    server_use_epoll     = input(f"{YELLOW}Do you want to {GREEN}Use epoll{YELLOW}? (1 to enable, 0 to disable): {RESET}").strip()
+    server_port           = input(f"{YELLOW}Enter Server {GREEN}port{RESET} (e.g., 8004): {RESET}").strip()
+    server_mode           = input(f"{YELLOW}Enter Server {GREEN}mode{RESET} (0 for disable, 1 for low-latency): {RESET}").strip()
+    server_sock_buf       = input(f"{YELLOW}Enter Server {GREEN}socket buffer{RESET} (e.g., 1024): {RESET}").strip()
+    server_log_lvl        = input(f"{YELLOW}Enter Server {GREEN}log level{RESET} (e.g., info): {RESET}").strip()
+    server_keep_alive     = input(f"{YELLOW}Enter Server {GREEN}keep-alive{RESET} (e.g., 10): {RESET}").strip()
+    server_dynamic_pacing = input(f"{YELLOW}Do you want to {GREEN}Enable dynamic pacing{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    server_jitter_buffer  = input(f"{YELLOW}Enter Server {GREEN}jitter buffer{RESET} (e.g., 0): {RESET}").strip()
+    server_multithread    = input(f"{YELLOW}Do you want to {GREEN}Enable multithread{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    server_use_epoll      = input(f"{YELLOW}Do you want to {GREEN}Use epoll{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    server_multiplex      = input(f"{YELLOW}Do you want to {GREEN}Enable multiplexing{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    server_obf            = input(f"{YELLOW}Do you want to {GREEN}Enable additional obfuscation{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
     
     server_cmd = (
         f"./server --ifname {server_ifname} --ip {server_ip} --mtu {server_mtu} "
         f"{pwd_flag} --port {server_port} --mode {server_mode} --sock-buf {server_sock_buf} "
         f"--log-lvl {server_log_lvl} --keep-alive {server_keep_alive} "
         f"--dynamic-pacing {server_dynamic_pacing} --jitter-buffer {server_jitter_buffer} "
-        f"--multithread {server_multithread} --use-epoll {server_use_epoll}"
+        f"--multithread {server_multithread} --use-epoll {server_use_epoll} "
+        f"--multiplex {server_multiplex} --obf {server_obf}"
     )
     return server_cmd, server_ip
 
@@ -187,18 +192,20 @@ def ask_client_config():
     print(f"{BLUE}=== Client Configuration ==={RESET}")
     print("\033[93m───────────────────────────────────────\033[0m")
     print(f"{YELLOW}Tip: Configure the client settings. For example:\n"
-          f"  - server: The IP address of the remote server (e.g, 206.100.101.102).\n"
-          f"  - ifname: The network interface for the TUN device (e.g, azumi).\n"
-          f"  - ip: The TUN IP address (e.g, 50.22.22.2/24).\n"
+          f"  - server: The IP address of the remote server (e.g., 206.100.101.102).\n"
+          f"  - ifname: The network interface for the TUN device (e.g., azumi).\n"
+          f"  - ip: The TUN IP address (e.g., 50.22.22.2/24).\n"
           f"  - retry: The number of connection retries.\n"
-          f"  - mode: 1 to enable, 0 to disable it.\n"
-          f"  - Other options adjust socket buffer size, logging, keep-alive, pacing, etc.{RESET}\n")
+          f"  - mode: 1 to enable low-latency mode, 0 to disable it.\n"
+          f"  - Other options adjust socket buffer size, logging, keep‑alive, pacing, etc.\n"
+          f"  - multiplex: Although accepted, this option is ignored on the client side (client always uses a single connection).\n"
+          f"  - obf: Enable (1) to apply additional obfuscation (XOR + byte rotation).\n{RESET}")
     print("\033[93m───────────────────────────────────────\033[0m")
     
-    client_server_ip = input(f"{YELLOW}Enter {GREEN}Server IP {RESET}(e.g, 206.100.101.102){YELLOW}: {RESET}").strip()
-    client_ifname    = input(f"{YELLOW}Enter Client {GREEN}network interface {RESET}(e.g, azumi){YELLOW}: {RESET}").strip()
-    client_ip        = input(f"{YELLOW}Enter Client {GREEN}TUN IP {RESET}(e.g, 50.22.22.2/24){YELLOW}: {RESET}").strip()
-    client_mtu       = input(f"{YELLOW}Enter Client {GREEN}MTU {RESET}(e.g, 1250){YELLOW}: {RESET}").strip()
+    client_server_ip = input(f"{YELLOW}Enter {GREEN}Server IP{RESET} (e.g., 206.100.101.102): {RESET}").strip()
+    client_ifname    = input(f"{YELLOW}Enter Client {GREEN}network interface{RESET} (e.g., azumi): {RESET}").strip()
+    client_ip        = input(f"{YELLOW}Enter Client {GREEN}TUN IP{RESET} (e.g., 50.22.22.2/24): {RESET}").strip()
+    client_mtu       = input(f"{YELLOW}Enter Client {GREEN}MTU{RESET} (e.g., 1250): {RESET}").strip()
     
     enable_xor = input(f"{YELLOW}Do you want to {GREEN}enable XOR encryption{YELLOW}? ({GREEN}y{YELLOW}/{RED}n{YELLOW}): {RESET}").strip().lower()
     if enable_xor in ['y', 'yes']:
@@ -207,26 +214,30 @@ def ask_client_config():
     else:
         xor_flag = ""
     
-    client_port      = input(f"{YELLOW}Enter Client {GREEN}port {RESET}(e.g, 8004){YELLOW}: {RESET}").strip()
-    client_retry     = input(f"{YELLOW}Enter Client {GREEN}retry count {RESET}(e.g, 5){YELLOW}: {RESET}").strip()
-    client_mode      = input(f"{YELLOW}Enter Client {GREEN}mode {RESET}(0 for disable, 1 for enable){YELLOW}: {RESET}").strip()
-    client_sock_buf  = input(f"{YELLOW}Enter Client {GREEN}socket buffer {RESET}(e.g, 2048){YELLOW}: {RESET}").strip()
-    client_log_lvl   = input(f"{YELLOW}Enter Client {GREEN}log level {RESET}(e.g, info){YELLOW}: {RESET}").strip()
-    client_keep_alive= input(f"{YELLOW}Enter Client {GREEN}keep-alive {RESET}(e.g, 10){YELLOW}: {RESET}").strip()
-    client_dynamic_pacing = input(f"{YELLOW}Do you want to {GREEN}enable dynamic pacing{YELLOW}? ({RESET}1 to enable, 0 to disable{YELLOW}): {RESET}").strip()
-    client_jitter_buffer  = input(f"{YELLOW}Enter Client {GREEN}jitter buffer {YELLOW}(e.g, in seconds 0): {RESET}").strip()
-    client_multithread    = input(f"{YELLOW}Do you want to {GREEN}enable multithread{YELLOW}? ({RESET}1 to enable, 0 to disable{YELLOW}): {RESET}").strip()
-    client_use_epoll      = input(f"{YELLOW}Do you want to {GREEN}use epoll{YELLOW}? ({RESET}1 to enable, 0 to disable{YELLOW}): {RESET}").strip()
+    client_port         = input(f"{YELLOW}Enter Client {GREEN}port{RESET} (e.g., 8004): {RESET}").strip()
+    client_retry        = input(f"{YELLOW}Enter Client {GREEN}retry count{RESET} (e.g., 5): {RESET}").strip()
+    client_mode         = input(f"{YELLOW}Enter Client {GREEN}mode{RESET} (0 for disable, 1 for low-latency): {RESET}").strip()
+    client_sock_buf     = input(f"{YELLOW}Enter Client {GREEN}socket buffer{RESET} (e.g., 2048): {RESET}").strip()
+    client_log_lvl      = input(f"{YELLOW}Enter Client {GREEN}log level{RESET} (e.g., info): {RESET}").strip()
+    client_keep_alive   = input(f"{YELLOW}Enter Client {GREEN}keep-alive{RESET} (e.g., 10): {RESET}").strip()
+    client_dynamic_pacing = input(f"{YELLOW}Do you want to {GREEN}enable dynamic pacing{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    client_jitter_buffer  = input(f"{YELLOW}Enter Client {GREEN}jitter buffer{RESET} (e.g., 0): {RESET}").strip()
+    client_multithread    = input(f"{YELLOW}Do you want to {GREEN}enable multithread{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    client_use_epoll      = input(f"{YELLOW}Do you want to {GREEN}use epoll{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    client_multiplex      = input(f"{YELLOW}Do you want to {GREEN}enable multiplexing{YELLOW}?{RESET} (1 to enable, 0 for default): {RESET}").strip()
+    client_obf            = input(f"{YELLOW}Do you want to {GREEN}enable additional obfuscation{YELLOW}?{RESET} (1 to enable, 0 to disable): {RESET}").strip()
+    if client_multiplex != "0":
+        print(f"{YELLOW}Client multiplex option is ignored; client always uses a single connection.{RESET}")
     
     client_cmd = (
         f"./client --server {client_server_ip} --ifname {client_ifname} --ip {client_ip} "
         f"--mtu {client_mtu} {xor_flag} --port {client_port} --retry {client_retry} --mode {client_mode} "
         f"--sock-buf {client_sock_buf} --log-lvl {client_log_lvl} --keep-alive {client_keep_alive} "
         f"--dynamic-pacing {client_dynamic_pacing} --jitter-buffer {client_jitter_buffer} "
-        f"--multithread {client_multithread} --use-epoll {client_use_epoll}"
+        f"--multithread {client_multithread} --use-epoll {client_use_epoll} "
+        f"--multiplex {client_multiplex} --obf {client_obf}"
     )
     return client_cmd, client_ip
-    
 
 
 def udp_status():
@@ -303,23 +314,30 @@ def udp_status():
         if port_match:
             details["Port"] = port_match.group(1)
         
-        print(f"\033[92mDetailed Options:{RESET}")
+        if "--multiplex 1" in exec_line:
+            details["Multiplexing"] = "Enabled"
+        elif "--multiplex 0" in exec_line:
+            details["Multiplexing"] = "Disabled"
+        if "--obf 1" in exec_line:
+            details["Additional Obfuscation"] = "Enabled"
+        elif "--obf 0" in exec_line:
+            details["Additional Obfuscation"] = "Disabled"
+        
+        print(f"\033[92mDetailed Options:\033[0m")
         for key, val in details.items():
             print(f"    • {key}: {val}")
         
-        print(f"\033[94m\nLast 10 log entries for {service}:{RESET}")
+        print(f"\033[94m\nLast 10 log entries for {service}:\033[0m")
         try:
             logs = subprocess.check_output(
                 f"journalctl -u {service} --no-pager | tail -n 10", shell=True
             ).decode()
-            print(f"\033[96m{logs}{RESET}")
+            print(f"\033[96m{logs}\033[0m")
         except subprocess.CalledProcessError:
-            print(f"\033[91mUnable to retrieve logs for {service}.{RESET}")
+            print(f"\033[91mUnable to retrieve logs for {service}.\033[0m")
     
     input(f"\n\033[97mPress Enter to return to the main menu...\033[0m")
     main_menu()
-
-
 
 def edit_server_menu():
     service_file = "/etc/systemd/system/udp_tun_server.service"
@@ -371,20 +389,21 @@ def edit_server_menu():
         "12": {"name": "Multithread", "flag": "--multithread", "value": get_param_input("--multithread"),
               "desc": "1 to enable, 0 to disable"},
         "13": {"name": "Use Epoll", "flag": "--use-epoll", "value": get_param_input("--use-epoll"),
+              "desc": "1 to enable, 0 to disable"},
+        "14": {"name": "Multiplex", "flag": "--multiplex", "value": get_param_input("--multiplex"),
+              "desc": "1 to enable, 0 to disable"},
+        "15": {"name": "Additional Obfuscation", "flag": "--obf", "value": get_param_input("--obf"),
               "desc": "1 to enable, 0 to disable"}
     }
     binary = exec_line.split()[0]
 
     while True:
         clear()
-        clear()
         os.system("clear")
         print("\033[92m ^ ^\033[0m")
         print("\033[92m(\033[91mO,O\033[92m)\033[0m")
         print("\033[92m(   ) \033[93mEdit UDP_TUN Server \033[92mConfiguration\033[0m")
-        print(
-        '\033[92m "-"\033[93m═══════════════════════════════════════════════════\033[0m'
-    )
+        print('\033[92m "-"\033[93m═══════════════════════════════════════════════════\033[0m')
         for key, param in sorted(server_params.items(), key=lambda x: int(x[0])):
             print(f"{YELLOW}{key}) {param['name']}: {GREEN}{param['value']}{RESET} [{param['desc']}]")
         print(f"{GREEN}s) Save changes")
@@ -470,6 +489,10 @@ def edit_client_menu():
         "13": {"name": "Multithread", "flag": "--multithread", "value": obt_param_value("--multithread"),
                "desc": "1 to enable, 0 to disable"},
         "14": {"name": "Use Epoll", "flag": "--use-epoll", "value": obt_param_value("--use-epoll"),
+               "desc": "1 to enable, 0 to disable"},
+        "15": {"name": "Multiplex", "flag": "--multiplex", "value": obt_param_value("--multiplex"),
+               "desc": "1 to enable, 0 to disable"},
+        "16": {"name": "Additional Obfuscation", "flag": "--obf", "value": obt_param_value("--obf"),
                "desc": "1 to enable, 0 to disable"}
     }
     binary = exec_line.split()[0]
@@ -480,9 +503,7 @@ def edit_client_menu():
         print("\033[92m ^ ^\033[0m")
         print("\033[92m(\033[91mO,O\033[92m)\033[0m")
         print("\033[92m(   ) \033[93mEdit UDP_TUN Client \033[92mConfiguration\033[0m")
-        print(
-        '\033[92m "-"\033[93m═══════════════════════════════════════════════════\033[0m'
-    )
+        print('\033[92m "-"\033[93m═══════════════════════════════════════════════════\033[0m')
         print("\033[93m╭───────────────────────────────────────╮\033[0m")
         for key, param in sorted(client_params.items(), key=lambda x: int(x[0])):
             print(f"{YELLOW}{key}) {param['name']}: {GREEN}{param['value']}{RESET} [{param['desc']}]")
@@ -514,6 +535,7 @@ def edit_client_menu():
         else:
             print(f"{RED}Invalid option. Please try again.{RESET}")
             input("Press Enter to continue...")
+
 
 def udp_edit():
     clear()
@@ -734,7 +756,7 @@ def main_menu():
     logo()
     print("\033[92m ^ ^\033[0m")
     print("\033[92m(\033[91mO,O\033[92m)\033[0m")
-    print("\033[92m(   ) \033[96mUDP TUN\033[93m Menu\033[0m")
+    print("\033[92m(   ) \033[96mUDP TUN V1.2\033[93m Menu\033[0m")
     print('\033[92m "-"\033[93m══════════════════════════════════\033[0m')
     print("\033[93m╭───────────────────────────────────────╮\033[0m")
     print("\033[93mChoose what to do:\033[0m")
