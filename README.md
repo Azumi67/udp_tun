@@ -248,6 +248,6 @@ In multithreaded mode (--multithread 1), the tunnel uses dedicated threads for r
 - **Reconnect Logic (Client Side)**:
 The client continuously monitors for connection errors during data transmission (especially in the keep‑alive and TUN→UDP threads). If an error (e.g., ECONNREFUSED) is detected, a reconnect flag is set, the threads exit, and the main loop closes the socket. After waiting for the interval specified by --retry, the client attempts to reconnect to the server.
 
-- **Obfuscation vs. Encryption:
+- **Obfuscation vs. Encryption**:
 The additional obfuscation (XOR plus a fixed byte rotation) is a very lightweight transformation meant to obscure the traffic. It might help hide the fact that the traffic is VPN data from casual inspection, but it is not cryptographically secure.
 The provided mechanism is primarily meant for basic obfuscation to make the VPN traffic look more like normal UDP traffic. it might suffice for avoiding superficial DPI, But for any serious security requirements, this is not a substitute for proper encryption.
